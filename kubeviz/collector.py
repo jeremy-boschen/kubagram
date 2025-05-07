@@ -574,28 +574,44 @@ class KubernetesResourceCollector:
 
     def _add_relationships(self, resources: Dict[str, List[Dict[str, Any]]]):
         """Add relationships between resources."""
+        logger.debug("Adding relationships between resources")
+        
         # Add pod-to-node relationships
         if "pods" in resources and "nodes" in resources:
+            logger.debug(f"Found {len(resources['pods'])} pods and {len(resources['nodes'])} nodes")
             for pod in resources["pods"]:
                 # Find the node that the pod is running on
-                if hasattr(pod, "spec") and hasattr(pod.spec, "node_name"):
-                    pod_node = pod.spec.node_name
-                    if pod_node:
-                        pod["relationships"].append({
-                            "kind": "Node",
-                            "name": pod_node,
-                            "namespace": None,
-                            "relationship_type": "runs-on"
-                        })
+                node_name = pod.get("node_name")
+                if node_name:
+                    logger.debug(f"Pod {pod['name']} runs on node {node_name}")
+                    for node in resources["nodes"]:
+                        if node["name"] == node_name:
+                            pod["relationships"].append({
+                                "kind": "Node",
+                                "name": node_name,
+                                "namespace": None,
+                                "relationship_type": "runs-on"
+                            })
+                            node["relationships"].append({
+                                "kind": "Pod",
+                                "name": pod["name"],
+                                "namespace": pod["namespace"],
+                                "relationship_type": "hosts"
+                            })
+                            break
         
         # Add service-to-pod relationships (via selectors)
         if "services" in resources and "pods" in resources:
+            logger.debug(f"Found {len(resources['services'])} services")
             for service in resources["services"]:
-                if "selector" in service and service["selector"]:
-                    # Find pods that match this service's selector
-                    selector = service["selector"]
+                selector = service.get("selector", {})
+                if selector and isinstance(selector, dict):
+                    logger.debug(f"Service {service['name']} has selector {selector}")
+                    matching_pods = []
                     for pod in resources["pods"]:
-                        if self._matches_selector(pod.get("labels", {}), selector):
+                        pod_labels = pod.get("labels", {})
+                        if self._matches_selector(pod_labels, selector):
+                            matching_pods.append(pod)
                             service["relationships"].append({
                                 "kind": "Pod",
                                 "name": pod["name"],
@@ -608,44 +624,63 @@ class KubernetesResourceCollector:
                                 "namespace": service["namespace"],
                                 "relationship_type": "selected-by"
                             })
+                    logger.debug(f"Service {service['name']} selects {len(matching_pods)} pods")
         
         # Add owner relationships (e.g., deployments own replicasets, which own pods)
+        owner_count = 0
         for resource_type, resource_list in resources.items():
             for resource in resource_list:
-                if "owner_references" in resource:
+                if "owner_references" in resource and resource["owner_references"]:
                     for owner_ref in resource["owner_references"]:
+                        found_owner = False
                         # Find the owner in our resources
                         for owner_type, owner_list in resources.items():
-                            for potential_owner in owner_list:
-                                if (potential_owner["kind"] == owner_ref["kind"] and 
-                                    potential_owner["name"] == owner_ref["name"] and 
-                                    potential_owner["uid"] == owner_ref["uid"]):
-                                    # Add relationship in both directions
-                                    resource["relationships"].append({
-                                        "kind": potential_owner["kind"],
-                                        "name": potential_owner["name"],
-                                        "namespace": potential_owner["namespace"],
-                                        "relationship_type": "owned-by"
-                                    })
-                                    potential_owner["relationships"].append({
-                                        "kind": resource["kind"],
-                                        "name": resource["name"],
-                                        "namespace": resource["namespace"],
-                                        "relationship_type": "owns"
-                                    })
+                            if not found_owner:  # Stop once we find one
+                                for potential_owner in owner_list:
+                                    if (potential_owner["kind"] == owner_ref["kind"] and 
+                                        potential_owner["name"] == owner_ref["name"]):
+                                        # Add relationship in both directions
+                                        resource["relationships"].append({
+                                            "kind": potential_owner["kind"],
+                                            "name": potential_owner["name"],
+                                            "namespace": potential_owner["namespace"],
+                                            "relationship_type": "owned-by"
+                                        })
+                                        potential_owner["relationships"].append({
+                                            "kind": resource["kind"],
+                                            "name": resource["name"],
+                                            "namespace": resource["namespace"],
+                                            "relationship_type": "owns"
+                                        })
+                                        found_owner = True
+                                        owner_count += 1
+                                        break
+        logger.debug(f"Added {owner_count} owner relationships")
         
         # Add controller-to-pod relationships (via pod template labels)
+        controller_count = 0
         if "pods" in resources:
             # For each controller type that would create pods
             for controller_type in ["deployments", "statefulsets", "daemonsets", "replicasets"]:
                 if controller_type in resources:
+                    logger.debug(f"Found {len(resources[controller_type])} {controller_type}")
                     for controller in resources[controller_type]:
-                        if "pod_template_labels" in controller:
+                        pod_template_labels = controller.get("pod_template_labels", {})
+                        if pod_template_labels:
                             # Find pods that match this controller's pod template labels
                             for pod in resources["pods"]:
-                                if self._matches_selector(pod.get("labels", {}), controller["pod_template_labels"]):
-                                    # We might already have this relationship via owner_references
-                                    # but we'll add it here to be sure
+                                pod_labels = pod.get("labels", {})
+                                
+                                # Check if this pod is already owned by another resource
+                                already_owned = False
+                                for rel in pod.get("relationships", []):
+                                    if rel["relationship_type"] == "owned-by":
+                                        already_owned = True
+                                        break
+                                
+                                # If it's not already owned, or if it's owned but we need to ensure the controller relationship
+                                if not already_owned and self._matches_selector(pod_labels, pod_template_labels):
+                                    # Check if we already have this relationship
                                     already_has_relationship = False
                                     for rel in pod.get("relationships", []):
                                         if (rel["kind"] == controller["kind"] and 
@@ -667,9 +702,86 @@ class KubernetesResourceCollector:
                                             "namespace": pod["namespace"],
                                             "relationship_type": "creates"
                                         })
+                                        controller_count += 1
+        logger.debug(f"Added {controller_count} controller-pod relationships")
+        
+        # Add POD volume mount relationships
+        vol_mount_count = 0
+        if "pods" in resources:
+            # Check for PVCs
+            if "persistentvolumeclaims" in resources:
+                for pod in resources["pods"]:
+                    pod_volumes = pod.get("volumes", [])
+                    for volume in pod_volumes:
+                        if volume.get("persistent_volume_claim"):
+                            pvc_name = volume.get("persistent_volume_claim")
+                            for pvc in resources["persistentvolumeclaims"]:
+                                if pvc["name"] == pvc_name and pvc["namespace"] == pod["namespace"]:
+                                    pod["relationships"].append({
+                                        "kind": "PersistentVolumeClaim",
+                                        "name": pvc["name"],
+                                        "namespace": pvc["namespace"],
+                                        "relationship_type": "uses"
+                                    })
+                                    pvc["relationships"].append({
+                                        "kind": "Pod",
+                                        "name": pod["name"],
+                                        "namespace": pod["namespace"],
+                                        "relationship_type": "used-by"
+                                    })
+                                    vol_mount_count += 1
+            
+            # Check for ConfigMap volumes
+            if "configmaps" in resources:
+                for pod in resources["pods"]:
+                    pod_volumes = pod.get("volumes", [])
+                    for volume in pod_volumes:
+                        if volume.get("config_map"):
+                            cm_name = volume.get("config_map")
+                            for cm in resources["configmaps"]:
+                                if cm["name"] == cm_name and cm["namespace"] == pod["namespace"]:
+                                    pod["relationships"].append({
+                                        "kind": "ConfigMap",
+                                        "name": cm["name"],
+                                        "namespace": cm["namespace"],
+                                        "relationship_type": "mounts"
+                                    })
+                                    cm["relationships"].append({
+                                        "kind": "Pod",
+                                        "name": pod["name"],
+                                        "namespace": pod["namespace"],
+                                        "relationship_type": "mounted-by"
+                                    })
+                                    vol_mount_count += 1
+            
+            # Check for Secret volumes
+            if "secrets" in resources:
+                for pod in resources["pods"]:
+                    pod_volumes = pod.get("volumes", [])
+                    for volume in pod_volumes:
+                        if volume.get("secret"):
+                            secret_name = volume.get("secret")
+                            for secret in resources["secrets"]:
+                                if secret["name"] == secret_name and secret["namespace"] == pod["namespace"]:
+                                    pod["relationships"].append({
+                                        "kind": "Secret",
+                                        "name": secret["name"],
+                                        "namespace": secret["namespace"],
+                                        "relationship_type": "mounts"
+                                    })
+                                    secret["relationships"].append({
+                                        "kind": "Pod",
+                                        "name": pod["name"],
+                                        "namespace": pod["namespace"],
+                                        "relationship_type": "mounted-by"
+                                    })
+                                    vol_mount_count += 1
+        logger.debug(f"Added {vol_mount_count} volume mount relationships")
         
         # Add ingress-to-service relationships
+        ingress_count = 0
         if "ingresses" in resources and "services" in resources:
+            logger.debug(f"Found {len(resources['ingresses'])} ingresses")
             for ingress in resources["ingresses"]:
                 if "ingress_rules" in ingress:
                     for rule in ingress["ingress_rules"]:
@@ -691,6 +803,8 @@ class KubernetesResourceCollector:
                                             "namespace": ingress["namespace"],
                                             "relationship_type": "routed-from"
                                         })
+                                        ingress_count += 1
+        logger.debug(f"Added {ingress_count} ingress-service relationships")
 
     def _detect_external_load_balancers(self, resources: Dict[str, List[Dict[str, Any]]]):
         """
