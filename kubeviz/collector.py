@@ -542,9 +542,68 @@ class KubernetesResourceCollector:
                     "uid": ref.uid
                 })
         
+        # Process Pod-specific information
+        if resource.kind == "Pod" and hasattr(resource, "spec"):
+            # Add node name for pods
+            if hasattr(resource.spec, "node_name") and resource.spec.node_name:
+                result["node_name"] = resource.spec.node_name
+            
+            # Add volumes for pods
+            if hasattr(resource.spec, "volumes") and resource.spec.volumes:
+                result["volumes"] = []
+                for volume in resource.spec.volumes:
+                    volume_info = {"name": volume.name}
+                    
+                    # PVC
+                    if hasattr(volume, "persistent_volume_claim") and volume.persistent_volume_claim:
+                        volume_info["persistent_volume_claim"] = volume.persistent_volume_claim.claim_name
+                    
+                    # ConfigMap
+                    if hasattr(volume, "config_map") and volume.config_map:
+                        volume_info["config_map"] = volume.config_map.name
+                    
+                    # Secret
+                    if hasattr(volume, "secret") and volume.secret:
+                        volume_info["secret"] = volume.secret.secret_name
+                    
+                    result["volumes"].append(volume_info)
+            
+            # Add container information
+            if hasattr(resource.spec, "containers") and resource.spec.containers:
+                result["containers"] = []
+                for container in resource.spec.containers:
+                    container_info = {"name": container.name}
+                    
+                    # Add environment variables that reference configmaps or secrets
+                    if hasattr(container, "env") and container.env:
+                        container_info["env_from"] = []
+                        for env in container.env:
+                            if hasattr(env, "value_from"):
+                                if hasattr(env.value_from, "config_map_key_ref") and env.value_from.config_map_key_ref:
+                                    container_info["env_from"].append({
+                                        "type": "ConfigMap",
+                                        "name": env.value_from.config_map_key_ref.name
+                                    })
+                                elif hasattr(env.value_from, "secret_key_ref") and env.value_from.secret_key_ref:
+                                    container_info["env_from"].append({
+                                        "type": "Secret",
+                                        "name": env.value_from.secret_key_ref.name
+                                    })
+                    
+                    # Add volume mounts
+                    if hasattr(container, "volume_mounts") and container.volume_mounts:
+                        container_info["volume_mounts"] = [vm.name for vm in container.volume_mounts]
+                    
+                    result["containers"].append(container_info)
+        
         # Add selector if present (for deployments, services, etc.)
         if hasattr(resource, "spec") and hasattr(resource.spec, "selector"):
-            result["selector"] = resource.spec.selector
+            if hasattr(resource.spec.selector, "match_labels") and resource.spec.selector.match_labels:
+                # For deployments, statefulsets, etc. that use matchLabels
+                result["selector"] = resource.spec.selector.match_labels
+            else:
+                # For services that use a simple selector
+                result["selector"] = resource.spec.selector
         
         # Add service type for services
         if resource.kind == "Service" and hasattr(resource, "spec"):
@@ -791,30 +850,101 @@ class KubernetesResourceCollector:
                                 service_name = http_path["backend_service_name"]
                                 for service in resources["services"]:
                                     if service["name"] == service_name and service["namespace"] == ingress["namespace"]:
-                                        ingress["relationships"].append({
-                                            "kind": "Service",
-                                            "name": service["name"],
-                                            "namespace": service["namespace"],
-                                            "relationship_type": "routes-to"
-                                        })
-                                        service["relationships"].append({
-                                            "kind": "Ingress",
-                                            "name": ingress["name"],
-                                            "namespace": ingress["namespace"],
-                                            "relationship_type": "routed-from"
-                                        })
-                                        ingress_count += 1
+                                        logger.debug(f"Ingress {ingress['name']} routes to Service {service['name']}")
+                                        
+                                        # Check if the relationship already exists
+                                        already_has_relationship = False
+                                        for rel in ingress.get("relationships", []):
+                                            if (rel["kind"] == "Service" and 
+                                                rel["name"] == service["name"] and 
+                                                rel["namespace"] == service["namespace"]):
+                                                already_has_relationship = True
+                                                break
+                                        
+                                        if not already_has_relationship:
+                                            ingress["relationships"].append({
+                                                "kind": "Service",
+                                                "name": service["name"],
+                                                "namespace": service["namespace"],
+                                                "relationship_type": "routes-to"
+                                            })
+                                            service["relationships"].append({
+                                                "kind": "Ingress",
+                                                "name": ingress["name"],
+                                                "namespace": ingress["namespace"],
+                                                "relationship_type": "routed-from"
+                                            })
+                                            ingress_count += 1
+            
+            # Extra check for Kubernetes 1.19+ style ingresses that might not have been processed
+            try:
+                # Add a check for newer Kubernetes API versions (1.19+) with Ingress format changes
+                logger.debug("Checking for additional ingress-service relationships using newer API format")
+                
+                # Process ingresses again to find potential backend services
+                for ingress_resource in resources["ingresses"]:
+                    # Check for backend links that may have been missed
+                    backends_found = 0
+                    
+                    # Try to find services targeted by this ingress
+                    for service in resources["services"]:
+                        # Look for standard naming convention where service name might be embedded in ingress name
+                        ingress_name_lower = ingress_resource["name"].lower()
+                        service_name_lower = service["name"].lower()
+                        
+                        # Check if ingress contains service name or vice versa
+                        if (service_name_lower in ingress_name_lower or 
+                            ingress_name_lower.startswith(service_name_lower) or
+                            ingress_name_lower.endswith(service_name_lower)):
+                            
+                            # Only add if they're in the same namespace
+                            if service["namespace"] == ingress_resource["namespace"]:
+                                # Check if relationship already exists
+                                already_has_relationship = False
+                                for rel in ingress_resource.get("relationships", []):
+                                    if (rel["kind"] == "Service" and 
+                                        rel["name"] == service["name"] and 
+                                        rel["namespace"] == service["namespace"]):
+                                        already_has_relationship = True
+                                        break
+                                
+                                if not already_has_relationship:
+                                    logger.debug(f"Found potential service match: Ingress {ingress_resource['name']} -> Service {service['name']}")
+                                    ingress_resource["relationships"].append({
+                                        "kind": "Service",
+                                        "name": service["name"],
+                                        "namespace": service["namespace"],
+                                        "relationship_type": "routes-to"
+                                    })
+                                    service["relationships"].append({
+                                        "kind": "Ingress",
+                                        "name": ingress_resource["name"],
+                                        "namespace": ingress_resource["namespace"],
+                                        "relationship_type": "routed-from"
+                                    })
+                                    ingress_count += 1
+                                    backends_found += 1
+                    
+                    logger.debug(f"Found {backends_found} potential additional backend services for ingress {ingress_resource['name']}")
+            except Exception as e:
+                logger.warning(f"Error checking for additional ingress-service relationships: {str(e)}")
+        
         logger.debug(f"Added {ingress_count} ingress-service relationships")
 
     def _detect_external_load_balancers(self, resources: Dict[str, List[Dict[str, Any]]]):
         """
         Detect external load balancers like AWS ALB/ELB, and add them to the resources.
         """
+        lb_count = 0
+        logger.debug("Detecting external load balancers")
+        
         # Check for services with type LoadBalancer and add cloud-specific information
         if "services" in resources:
             for service in resources["services"]:
                 if service.get("service_type") == "LoadBalancer" and "load_balancer" in service:
                     for lb in service["load_balancer"]:
+                        detected = False
+                        
                         # Check for AWS ELB/ALB
                         if "hostname" in lb and (".elb.amazonaws.com" in lb["hostname"] or 
                                                 ".amazonaws.com" in lb["hostname"]):
@@ -825,6 +955,41 @@ class KubernetesResourceCollector:
                                 "provider": "AWS",
                                 "hostname": lb["hostname"]
                             }
+                            detected = True
+                            logger.debug(f"Detected AWS {lb_type} for service {service['name']}")
+                            
+                            # Add a synthetic resource for the load balancer
+                            lb_name = f"{service['name']}-aws-{lb_type.lower()}"
+                            lb_resource = {
+                                "kind": "LoadBalancer",
+                                "name": lb_name,
+                                "namespace": service["namespace"],
+                                "uid": f"{service['uid']}-lb",  # Generate a synthetic UID
+                                "provider": "AWS",
+                                "type": lb_type,
+                                "hostname": lb["hostname"],
+                                "relationships": [{
+                                    "kind": "Service",
+                                    "name": service["name"],
+                                    "namespace": service["namespace"],
+                                    "relationship_type": "routes-to"
+                                }]
+                            }
+                            
+                            # Add to resources if not already there
+                            if "loadbalancers" not in resources:
+                                resources["loadbalancers"] = []
+                            resources["loadbalancers"].append(lb_resource)
+                            
+                            # Add relationship from service to load balancer
+                            service["relationships"].append({
+                                "kind": "LoadBalancer",
+                                "name": lb_name,
+                                "namespace": service["namespace"],
+                                "relationship_type": "exposed-by"
+                            })
+                            lb_count += 1
+                            
                         # Check for Azure Load Balancer
                         elif "ip" in lb and "hostname" in lb and ".cloudapp.azure.com" in lb.get("hostname", ""):
                             service["cloud_load_balancer"] = {
@@ -833,28 +998,203 @@ class KubernetesResourceCollector:
                                 "hostname": lb["hostname"],
                                 "ip": lb["ip"]
                             }
+                            detected = True
+                            logger.debug(f"Detected Azure Load Balancer for service {service['name']}")
+                            
+                            # Add a synthetic resource for the load balancer
+                            lb_name = f"{service['name']}-azure-lb"
+                            lb_resource = {
+                                "kind": "LoadBalancer",
+                                "name": lb_name,
+                                "namespace": service["namespace"],
+                                "uid": f"{service['uid']}-lb",  # Generate a synthetic UID
+                                "provider": "Azure",
+                                "type": "LoadBalancer",
+                                "hostname": lb["hostname"],
+                                "ip": lb["ip"],
+                                "relationships": [{
+                                    "kind": "Service",
+                                    "name": service["name"],
+                                    "namespace": service["namespace"],
+                                    "relationship_type": "routes-to"
+                                }]
+                            }
+                            
+                            # Add to resources if not already there
+                            if "loadbalancers" not in resources:
+                                resources["loadbalancers"] = []
+                            resources["loadbalancers"].append(lb_resource)
+                            
+                            # Add relationship from service to load balancer
+                            service["relationships"].append({
+                                "kind": "LoadBalancer",
+                                "name": lb_name,
+                                "namespace": service["namespace"],
+                                "relationship_type": "exposed-by"
+                            })
+                            lb_count += 1
+                            
                         # Check for GCP Load Balancer (detect by annotation)
                         elif "labels" in service and service["labels"].get("cloud.google.com/load-balancer-type"):
+                            lb_type = service["labels"]["cloud.google.com/load-balancer-type"]
                             service["cloud_load_balancer"] = {
-                                "type": service["labels"]["cloud.google.com/load-balancer-type"],
+                                "type": lb_type,
                                 "provider": "GCP",
                                 "ip": lb.get("ip")
                             }
+                            detected = True
+                            logger.debug(f"Detected GCP {lb_type} for service {service['name']}")
+                            
+                            # Add a synthetic resource for the load balancer
+                            lb_name = f"{service['name']}-gcp-{lb_type.lower().replace(' ', '-')}"
+                            lb_resource = {
+                                "kind": "LoadBalancer",
+                                "name": lb_name,
+                                "namespace": service["namespace"],
+                                "uid": f"{service['uid']}-lb",  # Generate a synthetic UID
+                                "provider": "GCP",
+                                "type": lb_type,
+                                "ip": lb.get("ip"),
+                                "relationships": [{
+                                    "kind": "Service",
+                                    "name": service["name"],
+                                    "namespace": service["namespace"],
+                                    "relationship_type": "routes-to"
+                                }]
+                            }
+                            
+                            # Add to resources if not already there
+                            if "loadbalancers" not in resources:
+                                resources["loadbalancers"] = []
+                            resources["loadbalancers"].append(lb_resource)
+                            
+                            # Add relationship from service to load balancer
+                            service["relationships"].append({
+                                "kind": "LoadBalancer",
+                                "name": lb_name,
+                                "namespace": service["namespace"],
+                                "relationship_type": "exposed-by"
+                            })
+                            lb_count += 1
+                        
+                        # Generic load balancer if we couldn't detect a specific cloud provider
+                        elif not detected and service.get("service_type") == "LoadBalancer":
+                            logger.debug(f"Detected generic Load Balancer for service {service['name']}")
+                            
+                            # Add a synthetic resource for the load balancer
+                            lb_name = f"{service['name']}-external-lb"
+                            lb_resource = {
+                                "kind": "LoadBalancer",
+                                "name": lb_name,
+                                "namespace": service["namespace"],
+                                "uid": f"{service['uid']}-lb",  # Generate a synthetic UID
+                                "provider": "Unknown",
+                                "type": "LoadBalancer",
+                                "ip": lb.get("ip", ""),
+                                "hostname": lb.get("hostname", ""),
+                                "relationships": [{
+                                    "kind": "Service",
+                                    "name": service["name"],
+                                    "namespace": service["namespace"],
+                                    "relationship_type": "routes-to"
+                                }]
+                            }
+                            
+                            # Add to resources if not already there
+                            if "loadbalancers" not in resources:
+                                resources["loadbalancers"] = []
+                            resources["loadbalancers"].append(lb_resource)
+                            
+                            # Add relationship from service to load balancer
+                            service["relationships"].append({
+                                "kind": "LoadBalancer",
+                                "name": lb_name,
+                                "namespace": service["namespace"],
+                                "relationship_type": "exposed-by"
+                            })
+                            lb_count += 1
         
-        # Check for Ingress controllers like Nginx Ingress, Traefik, etc.
+        # Check for Ingress controllers and add their relationships
+        ingress_controller_count = 0
         if "ingresses" in resources and "services" in resources:
             # Try to detect ingress controller type based on annotations or labels
             for ingress in resources["ingresses"]:
                 labels = ingress.get("labels", {})
+                controller_type = None
+                
                 # Check for specific ingress controller types based on annotations or labels
-                if labels.get("kubernetes.io/ingress.class") == "nginx" or labels.get("app.kubernetes.io/name") == "ingress-nginx":
-                    ingress["ingress_controller_type"] = "NGINX"
-                elif labels.get("kubernetes.io/ingress.class") == "traefik" or "traefik" in labels.get("app.kubernetes.io/name", ""):
-                    ingress["ingress_controller_type"] = "Traefik"
-                elif labels.get("kubernetes.io/ingress.class") == "alb" or "aws-alb" in labels.get("app.kubernetes.io/name", ""):
-                    ingress["ingress_controller_type"] = "AWS ALB"
-                elif labels.get("kubernetes.io/ingress.class") == "istio":
-                    ingress["ingress_controller_type"] = "Istio"
+                if "kubernetes.io/ingress.class" in labels:
+                    ingress_class = labels["kubernetes.io/ingress.class"]
+                    if ingress_class == "nginx":
+                        controller_type = "NGINX"
+                    elif ingress_class == "traefik":
+                        controller_type = "Traefik"
+                    elif ingress_class == "alb":
+                        controller_type = "AWS ALB"
+                    elif ingress_class == "istio":
+                        controller_type = "Istio"
+                    else:
+                        controller_type = ingress_class.capitalize()
+                elif labels.get("app.kubernetes.io/name") == "ingress-nginx":
+                    controller_type = "NGINX"
+                elif "traefik" in labels.get("app.kubernetes.io/name", ""):
+                    controller_type = "Traefik"
+                elif "aws-alb" in labels.get("app.kubernetes.io/name", ""):
+                    controller_type = "AWS ALB"
+                
+                if controller_type:
+                    ingress["ingress_controller_type"] = controller_type
+                    logger.debug(f"Detected {controller_type} ingress controller for ingress {ingress['name']}")
+                    
+                    # Add synthetic resource for ingress controller if it doesn't exist already
+                    controller_name = f"{controller_type.lower()}-ingress-controller"
+                    
+                    # Check if this controller already exists
+                    exists = False
+                    if "ingresscontrollers" in resources:
+                        for controller in resources["ingresscontrollers"]:
+                            if controller["name"] == controller_name:
+                                exists = True
+                                # Add relationship to this ingress
+                                controller["relationships"].append({
+                                    "kind": "Ingress",
+                                    "name": ingress["name"],
+                                    "namespace": ingress["namespace"],
+                                    "relationship_type": "manages"
+                                })
+                                break
+                    
+                    if not exists:
+                        # Create a new synthetic resource for the ingress controller
+                        controller_resource = {
+                            "kind": "IngressController",
+                            "name": controller_name,
+                            "namespace": "kube-system",  # Typically ingress controllers run in kube-system
+                            "uid": f"ic-{controller_type.lower()}",  # Synthetic UID
+                            "type": controller_type,
+                            "relationships": [{
+                                "kind": "Ingress",
+                                "name": ingress["name"],
+                                "namespace": ingress["namespace"],
+                                "relationship_type": "manages"
+                            }]
+                        }
+                        
+                        # Add to resources
+                        if "ingresscontrollers" not in resources:
+                            resources["ingresscontrollers"] = []
+                        resources["ingresscontrollers"].append(controller_resource)
+                    
+                    # Add relationship from ingress to controller
+                    ingress["relationships"].append({
+                        "kind": "IngressController",
+                        "name": controller_name,
+                        "namespace": "kube-system",
+                        "relationship_type": "managed-by"
+                    })
+                    ingress_controller_count += 1
+        
+        logger.debug(f"Detected {lb_count} load balancers and {ingress_controller_count} ingress controllers")
 
     def _matches_selector(self, labels: Dict[str, str], selector: Dict[str, str]) -> bool:
         """Check if labels match the given selector."""
