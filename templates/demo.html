@@ -74,63 +74,100 @@
                 <div class="mermaid-container">
                     <div class="mermaid">
 {% raw %}
-graph TB
-    Namespace_default[/Namespace: default\]
-    Deployment_default_frontend[Deployment: frontend]
-    Deployment_default_backend[Deployment: backend]
-    Service_default_frontend_svc{{Service: frontend-svc}}
-    Service_default_backend_svc{{Service: backend-svc}}
-    Service_default_db_svc{{Service: db-svc}}
-    Pod_default_frontend_74d8bd6f54_a1b2c((Pod: frontend-74d8bd6f54-a1b2c))
-    Pod_default_frontend_74d8bd6f54_d3e4f((Pod: frontend-74d8bd6f54-d3e4f))
-    Pod_default_backend_5678cd9012_g4h5i((Pod: backend-5678cd9012-g4h5i))
-    Pod_default_backend_5678cd9012_j6k7l((Pod: backend-5678cd9012-j6k7l))
-    Pod_default_db_statefulset_0((Pod: db-statefulset-0))
-    Pod_default_db_statefulset_1((Pod: db-statefulset-1))
-    StatefulSet_default_db_statefulset[StatefulSet: db-statefulset]
-    ConfigMap_default_app_config[\ConfigMap: app-config\]
-    Secret_default_db_credentials[\Secret: db-credentials\]
-    PersistentVolumeClaim_default_db_data_0[(PVC: db-data-0)]
-    PersistentVolumeClaim_default_db_data_1[(PVC: db-data-1)]
-    Ingress_default_web_ingress>Ingress: web-ingress]
+flowchart TB
+    %% Define styles for nodes
+    classDef namespace fill:#f9f9f9,stroke:#999,stroke-width:1px
+    classDef deployment fill:#3572a5,color:white,stroke-width:0,font-weight:bold
+    classDef statefulset fill:#6b4c9a,color:white,stroke-width:0,font-weight:bold
+    classDef service fill:#47a248,color:white,stroke-width:0,font-weight:bold,shape:hexagon
+    classDef pod fill:#0db7ed,color:white,stroke-width:0,font-weight:bold,shape:circle
+    classDef volume fill:#f96,color:white,stroke-width:0,shape:cylinder
+    classDef config fill:#eee,stroke:#ccc,stroke-width:1px,shape:note
+    classDef ingress fill:#ff5252,color:white,stroke-width:0,font-weight:bold
+
+    %% Namespace
+    subgraph cluster["default namespace"]
+        %% Ingress
+        ingress["🌐 web-ingress"]
+        
+        %% Frontend Group
+        subgraph frontend["Frontend Stack"]
+            deploy_front["📦 Deployment: frontend"]
+            svc_front["🔌 Service: frontend-svc"]
+            pod_front1["🔶 Pod: frontend-pod-1"]
+            pod_front2["🔶 Pod: frontend-pod-2"]
+            config["⚙️ ConfigMap: app-config"]
+        end
+        
+        %% Backend Group
+        subgraph backend["Backend Stack"]
+            deploy_back["📦 Deployment: backend"]
+            svc_back["🔌 Service: backend-svc"]
+            pod_back1["🔶 Pod: backend-pod-1"]
+            pod_back2["🔶 Pod: backend-pod-2"]
+        end
+        
+        %% Database Group
+        subgraph database["Database Stack"]
+            stateful["💾 StatefulSet: db"]
+            svc_db["🔌 Service: db-svc"]
+            pod_db1["🔶 Pod: db-pod-0"]
+            pod_db2["🔶 Pod: db-pod-1"]
+            secret["🔒 Secret: db-credentials"]
+            pvc1["💿 PVC: db-data-0"]
+            pvc2["💿 PVC: db-data-1"]
+        end
+    end
     
-    %% Relationships
-    Deployment_default_frontend --> |creates| Pod_default_frontend_74d8bd6f54_a1b2c
-    Deployment_default_frontend --> |creates| Pod_default_frontend_74d8bd6f54_d3e4f
-    Deployment_default_backend --> |creates| Pod_default_backend_5678cd9012_g4h5i
-    Deployment_default_backend --> |creates| Pod_default_backend_5678cd9012_j6k7l
-    StatefulSet_default_db_statefulset --> |creates| Pod_default_db_statefulset_0
-    StatefulSet_default_db_statefulset --> |creates| Pod_default_db_statefulset_1
-    Service_default_frontend_svc -.-> |selects| Pod_default_frontend_74d8bd6f54_a1b2c
-    Service_default_frontend_svc -.-> |selects| Pod_default_frontend_74d8bd6f54_d3e4f
-    Service_default_backend_svc -.-> |selects| Pod_default_backend_5678cd9012_g4h5i
-    Service_default_backend_svc -.-> |selects| Pod_default_backend_5678cd9012_j6k7l
-    Service_default_db_svc -.-> |selects| Pod_default_db_statefulset_0
-    Service_default_db_svc -.-> |selects| Pod_default_db_statefulset_1
-    Pod_default_db_statefulset_0 --> |uses| PersistentVolumeClaim_default_db_data_0
-    Pod_default_db_statefulset_1 --> |uses| PersistentVolumeClaim_default_db_data_1
-    Ingress_default_web_ingress ==> |routes to| Service_default_frontend_svc
-    Pod_default_frontend_74d8bd6f54_a1b2c -.-> |connects to| Service_default_backend_svc
-    Pod_default_backend_5678cd9012_g4h5i -.-> |connects to| Service_default_db_svc
-    Pod_default_backend_5678cd9012_j6k7l -.-> |connects to| Service_default_db_svc
-    Pod_default_frontend_74d8bd6f54_a1b2c -.-> |mounts| ConfigMap_default_app_config
-    Pod_default_frontend_74d8bd6f54_d3e4f -.-> |mounts| ConfigMap_default_app_config
-    Pod_default_backend_5678cd9012_g4h5i -.-> |mounts| ConfigMap_default_app_config
-    Pod_default_backend_5678cd9012_j6k7l -.-> |mounts| ConfigMap_default_app_config
-    Pod_default_db_statefulset_0 -.-> |mounts| Secret_default_db_credentials
-    Pod_default_db_statefulset_1 -.-> |mounts| Secret_default_db_credentials
+    %% Key relationships (simplified to reduce visual complexity)
+    ingress ==> svc_front
+    
+    deploy_front --> pod_front1 & pod_front2
+    svc_front -.-> pod_front1 & pod_front2
+    config -.-> pod_front1 & pod_front2
+    
+    deploy_back --> pod_back1 & pod_back2
+    svc_back -.-> pod_back1 & pod_back2
+    
+    stateful --> pod_db1 & pod_db2
+    svc_db -.-> pod_db1 & pod_db2
+    pod_db1 -.-> pvc1
+    pod_db2 -.-> pvc2
+    secret -.-> pod_db1 & pod_db2
+    
+    %% Inter-component connections
+    svc_front --> svc_back
+    svc_back --> svc_db
+    
+    %% Apply styles
+    class cluster namespace
+    class deploy_front,deploy_back deployment
+    class stateful statefulset
+    class svc_front,svc_back,svc_db service
+    class pod_front1,pod_front2,pod_back1,pod_back2,pod_db1,pod_db2 pod
+    class pvc1,pvc2 volume
+    class config,secret config
+    class ingress ingress
     
     %% Legend
-    subgraph Legend
-    legend_pod((Pod))
-    legend_service{{Service}}
-    legend_deployment[Deployment]
-    legend_statefulset[StatefulSet]
-    legend_ingress>Ingress]
-    legend_configmap[\ConfigMap\]
-    legend_secret[\Secret\]
-    legend_pvc[(PVC)]
+    subgraph Legend["Component Legend"]
+        leg_deploy["📦 Deployment"]
+        leg_stateful["💾 StatefulSet"]
+        leg_svc["🔌 Service"]
+        leg_pod["🔶 Pod"]
+        leg_pvc["💿 Volume"]
+        leg_config["⚙️ ConfigMap"]
+        leg_secret["🔒 Secret"]
+        leg_ingress["🌐 Ingress"]
     end
+    
+    class leg_deploy deployment
+    class leg_stateful statefulset
+    class leg_svc service
+    class leg_pod pod
+    class leg_pvc volume
+    class leg_config,leg_secret config
+    class leg_ingress ingress
 {% endraw %}
                     </div>
                 </div>
@@ -138,9 +175,101 @@ graph TB
             
             <div id="svg-tab" class="tab-pane" style="display: none;">
                 <div class="diagram-container">
-                    <img src="https://via.placeholder.com/1000x800?text=Sample+SVG+Visualization" alt="Sample SVG Visualization" class="img-fluid" />
-                    <div class="text-center mt-3">
-                        <p class="text-muted">This is a placeholder for the SVG visualization</p>
+                    <div class="text-center">
+                        <div style="max-width: 100%; overflow: auto; background-color: white; padding: 20px; border-radius: 8px;">
+                            <svg width="100%" height="600" viewBox="0 0 800 600" xmlns="http://www.w3.org/2000/svg">
+                                <!-- Namespace Box -->
+                                <rect x="50" y="50" width="700" height="500" rx="10" ry="10" fill="#f9f9f9" stroke="#ddd" stroke-width="1" />
+                                <text x="400" y="80" text-anchor="middle" font-family="Arial" font-size="18" fill="#666">Namespace: default</text>
+                                
+                                <!-- Ingress -->
+                                <rect x="100" y="100" width="150" height="50" rx="5" ry="5" fill="#ff5252" stroke="#e64a4a" stroke-width="1" />
+                                <text x="175" y="130" text-anchor="middle" font-family="Arial" font-size="14" fill="white">🌐 web-ingress</text>
+                                
+                                <!-- Frontend Group -->
+                                <rect x="100" y="200" width="150" height="200" rx="5" ry="5" fill="#e0f7fa" stroke="#b2ebf2" stroke-width="1" />
+                                <text x="175" y="220" text-anchor="middle" font-family="Arial" font-size="12" fill="#333">Frontend Stack</text>
+                                
+                                <rect x="110" y="240" width="130" height="30" rx="5" ry="5" fill="#3572a5" stroke="#2a5885" stroke-width="1" />
+                                <text x="175" y="260" text-anchor="middle" font-family="Arial" font-size="12" fill="white">📦 Deployment</text>
+                                
+                                <polygon points="175,290 155,310 195,310" fill="#47a248" stroke="#3d8a3e" stroke-width="1" />
+                                <text x="175" y="305" text-anchor="middle" font-family="Arial" font-size="12" fill="white">🔌 Service</text>
+                                
+                                <circle cx="150" cy="340" r="15" fill="#0db7ed" stroke="#0c9bc8" stroke-width="1" />
+                                <text x="150" y="344" text-anchor="middle" font-family="Arial" font-size="10" fill="white">🔶</text>
+                                
+                                <circle cx="200" cy="340" r="15" fill="#0db7ed" stroke="#0c9bc8" stroke-width="1" />
+                                <text x="200" y="344" text-anchor="middle" font-family="Arial" font-size="10" fill="white">🔶</text>
+                                
+                                <!-- Backend Group -->
+                                <rect x="325" y="200" width="150" height="200" rx="5" ry="5" fill="#e8f5e9" stroke="#c8e6c9" stroke-width="1" />
+                                <text x="400" y="220" text-anchor="middle" font-family="Arial" font-size="12" fill="#333">Backend Stack</text>
+                                
+                                <rect x="335" y="240" width="130" height="30" rx="5" ry="5" fill="#3572a5" stroke="#2a5885" stroke-width="1" />
+                                <text x="400" y="260" text-anchor="middle" font-family="Arial" font-size="12" fill="white">📦 Deployment</text>
+                                
+                                <polygon points="400,290 380,310 420,310" fill="#47a248" stroke="#3d8a3e" stroke-width="1" />
+                                <text x="400" y="305" text-anchor="middle" font-family="Arial" font-size="12" fill="white">🔌 Service</text>
+                                
+                                <circle cx="375" cy="340" r="15" fill="#0db7ed" stroke="#0c9bc8" stroke-width="1" />
+                                <text x="375" y="344" text-anchor="middle" font-family="Arial" font-size="10" fill="white">🔶</text>
+                                
+                                <circle cx="425" cy="340" r="15" fill="#0db7ed" stroke="#0c9bc8" stroke-width="1" />
+                                <text x="425" y="344" text-anchor="middle" font-family="Arial" font-size="10" fill="white">🔶</text>
+                                
+                                <!-- Database Group -->
+                                <rect x="550" y="200" width="150" height="270" rx="5" ry="5" fill="#f3e5f5" stroke="#e1bee7" stroke-width="1" />
+                                <text x="625" y="220" text-anchor="middle" font-family="Arial" font-size="12" fill="#333">Database Stack</text>
+                                
+                                <rect x="560" y="240" width="130" height="30" rx="5" ry="5" fill="#6b4c9a" stroke="#563d7c" stroke-width="1" />
+                                <text x="625" y="260" text-anchor="middle" font-family="Arial" font-size="12" fill="white">💾 StatefulSet</text>
+                                
+                                <polygon points="625,290 605,310 645,310" fill="#47a248" stroke="#3d8a3e" stroke-width="1" />
+                                <text x="625" y="305" text-anchor="middle" font-family="Arial" font-size="12" fill="white">🔌 Service</text>
+                                
+                                <circle cx="600" cy="340" r="15" fill="#0db7ed" stroke="#0c9bc8" stroke-width="1" />
+                                <text x="600" y="344" text-anchor="middle" font-family="Arial" font-size="10" fill="white">🔶</text>
+                                
+                                <circle cx="650" cy="340" r="15" fill="#0db7ed" stroke="#0c9bc8" stroke-width="1" />
+                                <text x="650" y="344" text-anchor="middle" font-family="Arial" font-size="10" fill="white">🔶</text>
+                                
+                                <rect x="575" y="370" width="100" height="30" rx="5" ry="5" fill="#eee" stroke="#ddd" stroke-width="1" />
+                                <text x="625" y="390" text-anchor="middle" font-family="Arial" font-size="12" fill="#333">🔒 Secret</text>
+                                
+                                <ellipse cx="600" cy="420" rx="20" ry="15" fill="#f96" stroke="#e87" stroke-width="1" />
+                                <text x="600" y="425" text-anchor="middle" font-family="Arial" font-size="11" fill="white">💿</text>
+                                
+                                <ellipse cx="650" cy="420" rx="20" ry="15" fill="#f96" stroke="#e87" stroke-width="1" />
+                                <text x="650" y="425" text-anchor="middle" font-family="Arial" font-size="11" fill="white">💿</text>
+                                
+                                <!-- Connections -->
+                                <path d="M175,150 C175,170 175,190 175,200" stroke="#ff5252" stroke-width="2" fill="none" />
+                                <path d="M175,310 C175,320 175,330 150,340" stroke="#47a248" stroke-width="1.5" stroke-dasharray="4,2" fill="none" />
+                                <path d="M175,310 C175,320 175,330 200,340" stroke="#47a248" stroke-width="1.5" stroke-dasharray="4,2" fill="none" />
+                                <path d="M175,310 C175,325 280,325 380,310" stroke="#333" stroke-width="2" fill="none" />
+                                
+                                <path d="M400,310 C400,320 400,330 375,340" stroke="#47a248" stroke-width="1.5" stroke-dasharray="4,2" fill="none" />
+                                <path d="M400,310 C400,320 400,330 425,340" stroke="#47a248" stroke-width="1.5" stroke-dasharray="4,2" fill="none" />
+                                <path d="M400,310 C400,325 505,325 605,310" stroke="#333" stroke-width="2" fill="none" />
+                                
+                                <path d="M625,310 C625,320 625,330 600,340" stroke="#47a248" stroke-width="1.5" stroke-dasharray="4,2" fill="none" />
+                                <path d="M625,310 C625,320 625,330 650,340" stroke="#47a248" stroke-width="1.5" stroke-dasharray="4,2" fill="none" />
+                                <path d="M600,355 C600,360 600,365 600,370" stroke="#0db7ed" stroke-width="1.5" stroke-dasharray="4,2" fill="none" />
+                                <path d="M650,355 C650,360 650,365 650,370" stroke="#0db7ed" stroke-width="1.5" stroke-dasharray="4,2" fill="none" />
+                                <path d="M600,400 C600,405 600,410 600,420" stroke="#888" stroke-width="1.5" fill="none" />
+                                <path d="M650,400 C650,405 650,410 650,420" stroke="#888" stroke-width="1.5" fill="none" />
+                                
+                                <!-- Legend -->
+                                <rect x="100" y="480" width="600" height="50" rx="5" ry="5" fill="#f5f5f5" stroke="#ddd" stroke-width="1" />
+                                <text x="130" y="510" font-family="Arial" font-size="12" fill="#333">📦 Deployment</text>
+                                <text x="240" y="510" font-family="Arial" font-size="12" fill="#333">💾 StatefulSet</text>
+                                <text x="350" y="510" font-family="Arial" font-size="12" fill="#333">🔌 Service</text>
+                                <text x="450" y="510" font-family="Arial" font-size="12" fill="#333">🔶 Pod</text>
+                                <text x="520" y="510" font-family="Arial" font-size="12" fill="#333">💿 Volume</text>
+                                <text x="600" y="510" font-family="Arial" font-size="12" fill="#333">🔒 Secret</text>
+                            </svg>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -172,7 +301,11 @@ graph TB
         document.addEventListener('DOMContentLoaded', function() {
             mermaid.initialize({
                 startOnLoad: true,
-                theme: 'default'
+                theme: 'default',
+                flowchart: {
+                    curve: 'basis',
+                    useMaxWidth: true
+                }
             });
         });
         
