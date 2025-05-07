@@ -1,0 +1,67 @@
+apiVersion: krew.googlecontainertools.github.com/v1alpha2
+kind: Plugin
+metadata:
+  name: kubeviz
+spec:
+  version: "v0.1.0"
+  platforms:
+  - selector:
+      matchExpressions:
+      - {key: os, operator: In, values: [darwin, linux]}
+    uri: https://github.com/username/kubectl-kubeviz/releases/download/v0.1.0/kubectl-kubeviz_v0.1.0_linux_darwin.tar.gz
+    sha256: "0000000000000000000000000000000000000000000000000000000000000000"
+    bin: kubectl-kubeviz
+  - selector:
+      matchExpressions:
+      - {key: os, operator: In, values: [windows]}
+    uri: https://github.com/username/kubectl-kubeviz/releases/download/v0.1.0/kubectl-kubeviz_v0.1.0_windows.zip
+    sha256: "0000000000000000000000000000000000000000000000000000000000000000"
+    bin: kubectl-kubeviz.exe
+  shortDescription: Visualize Kubernetes cluster resources as diagrams
+  homepage: https://github.com/username/kubectl-kubeviz
+  caveats: |
+    This plugin needs the following dependencies:
+    * Python 3.6+
+    * Graphviz (for SVG output)
+    
+    You can install them with:
+    
+    # macOS
+    brew install graphviz
+    
+    # Debian/Ubuntu
+    apt-get install graphviz
+    
+    # Red Hat/CentOS
+    yum install graphviz
+  description: |
+    KubeViz is a kubectl plugin that visualizes Kubernetes cluster resources
+    and their relationships as SVG or Mermaid diagrams.
+    
+    Key features:
+    * Generate cluster visualization diagrams in SVG and Mermaid formats
+    * Support filtering by namespace or label selectors
+    * Default to visualizing the entire cluster if no filters provided
+    * Detect and visualize Kubernetes resources (pods, services, deployments, etc.)
+    * Smart detection of ingress resources and external load balancers
+    * Show relationships between resources (connections, dependencies)
+    
+    Examples:
+    
+    # Visualize entire cluster
+    kubectl kubeviz
+    
+    # Visualize resources in a specific namespace
+    kubectl kubeviz -n kube-system
+    
+    # Visualize resources with a specific label
+    kubectl kubeviz -l app=nginx
+    
+    # Output Mermaid format instead of SVG
+    kubectl kubeviz -o mermaid
+    
+    # Preview the diagram in a browser
+    kubectl kubeviz -o preview
+    
+    # Save to a specific file
+    kubectl kubeviz -f my-cluster-diagram.svg

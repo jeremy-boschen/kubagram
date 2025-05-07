@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>KubeViz - Kubernetes Visualization Tool</title>
+    <link href="https://cdn.replit.com/agent/bootstrap-agent-dark-theme.min.css" rel="stylesheet">
+</head>
+<body data-bs-theme="dark">
+    <div class="container py-4">
+        <header class="pb-3 mb-4 border-bottom">
+            <h1 class="fs-4">KubeViz - Kubernetes Visualization Tool</h1>
+        </header>
+
+        <div class="p-5 mb-4 bg-body-tertiary rounded-3">
+            <div class="container-fluid py-5">
+                <h1 class="display-5 fw-bold">Visualize your Kubernetes clusters</h1>
+                <p class="col-md-8 fs-4">KubeViz is a kubectl plugin that generates diagrams showing resources and their relationships in your Kubernetes clusters.</p>
+                <a href="/demo" class="btn btn-primary btn-lg" type="button">View Demo Visualization</a>
+            </div>
+        </div>
+
+        <div class="row align-items-md-stretch">
+            <div class="col-md-6">
+                <div class="h-100 p-5 text-bg-primary rounded-3">
+                    <h2>Features</h2>
+                    <ul>
+                        <li>Generate SVG and Mermaid diagrams</li>
+                        <li>Filter by namespace or label selectors</li>
+                        <li>Smart detection of key components</li>
+                        <li>Show relationships between resources</li>
+                        <li>Interactive preview mode</li>
+                    </ul>
+                </div>
+            </div>
+            <div class="col-md-6">
+                <div class="h-100 p-5 bg-body-tertiary border rounded-3">
+                    <h2>Installation</h2>
+                    <p>Install KubeViz as a kubectl plugin using Krew:</p>
+                    <pre><code>kubectl krew install kubeviz</code></pre>
+                    <p>Or run it directly from source:</p>
+                    <pre><code>git clone https://github.com/username/kubectl-kubeviz
+cd kubectl-kubeviz
+./kubectl-kubeviz</code></pre>
+                </div>
+            </div>
+        </div>
+        
+        <div class="mt-4 p-5 bg-body-tertiary rounded-3">
+            <h2>Usage Examples</h2>
+            <pre><code>
+# Visualize entire cluster
+kubectl kubeviz
+
+# Visualize resources in a specific namespace
+kubectl kubeviz -n kube-system
+
+# Visualize resources with a specific label
+kubectl kubeviz -l app=nginx
+
+# Output Mermaid format instead of SVG
+kubectl kubeviz -o mermaid
+
+# Preview the diagram in a browser
+kubectl kubeviz -o preview
+
+# Save to a specific file
+kubectl kubeviz -f my-cluster-diagram.svg
+            </code></pre>
+        </div>
+
+        <footer class="pt-3 mt-4 text-body-secondary border-top">
+            &copy; 2025 KubeViz
+        </footer>
+    </div>
+</body>
+</html>

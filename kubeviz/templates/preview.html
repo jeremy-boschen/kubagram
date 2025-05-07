@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>KubeViz - Kubernetes Cluster Visualization</title>
+    <link href="https://cdn.replit.com/agent/bootstrap-agent-dark-theme.min.css" rel="stylesheet">
+    <style>
+        body {
+            padding: 20px;
+        }
+        
+        .diagram-container {
+            background-color: white;
+            padding: 20px;
+            border-radius: 5px;
+            box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
+            overflow: auto;
+            margin-bottom: 20px;
+        }
+        
+        .mermaid-container {
+            background-color: white;
+            padding: 20px;
+            border-radius: 5px;
+            box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
+            overflow: auto;
+        }
+        
+        svg {
+            max-width: 100%;
+            height: auto;
+        }
+        
+        .zoom-controls {
+            margin-bottom: 10px;
+        }
+        
+        .zoom-controls button {
+            margin-right: 5px;
+        }
+        
+        .toolbar {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+        }
+        
+        .download-btn {
+            margin-left: 10px;
+        }
+    </style>
+</head>
+<body data-bs-theme="dark">
+    <div class="container-fluid">
+        <div class="row mb-3">
+            <div class="col">
+                <h1>KubeViz - Kubernetes Cluster Visualization</h1>
+                <p class="lead">Interactive visualization of your Kubernetes cluster resources</p>
+            </div>
+        </div>
+        
+        <div class="row mb-3">
+            <div class="col">
+                <div class="toolbar">
+                    <div class="zoom-controls">
+                        <button class="btn btn-outline-primary btn-sm" onclick="zoomIn()">Zoom In</button>
+                        <button class="btn btn-outline-primary btn-sm" onclick="zoomOut()">Zoom Out</button>
+                        <button class="btn btn-outline-primary btn-sm" onclick="resetZoom()">Reset</button>
+                    </div>
+                    
+                    <div class="export-controls">
+                        {% if format_type == 'svg' %}
+                        <button class="btn btn-outline-success btn-sm download-btn" onclick="downloadSVG()">Download SVG</button>
+                        {% else %}
+                        <button class="btn btn-outline-success btn-sm download-btn" onclick="downloadMermaid()">Download Mermaid</button>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <div class="row">
+            <div class="col">
+                {% if format_type == 'svg' %}
+                <div id="diagram-container" class="diagram-container">
+                    <object id="svg-object" type="image/svg+xml" data="/diagram" width="100%" height="100%">
+                        Your browser does not support SVG
+                    </object>
+                </div>
+                {% else %}
+                <div class="mermaid-container">
+                    <pre id="mermaid-content">{{ diagram_content }}</pre>
+                    <div class="mermaid" id="mermaid-diagram">{{ diagram_content }}</div>
+                </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+    
+    {% if format_type == 'mermaid' %}
+    <script src="https://cdn.jsdelivr.net/npm/mermaid/dist/mermaid.min.js"></script>
+    <script>
+        mermaid.initialize({
+            startOnLoad: true,
+            theme: 'default'
+        });
+    </script>
+    {% endif %}
+    
+    <script>
+        let zoomLevel = 1;
+        const zoomStep = 0.1;
+        const minZoom = 0.5;
+        const maxZoom = 3;
+        
+        function zoomIn() {
+            if (zoomLevel < maxZoom) {
+                zoomLevel += zoomStep;
+                applyZoom();
+            }
+        }
+        
+        function zoomOut() {
+            if (zoomLevel > minZoom) {
+                zoomLevel -= zoomStep;
+                applyZoom();
+            }
+        }
+        
+        function resetZoom() {
+            zoomLevel = 1;
+            applyZoom();
+        }
+        
+        function applyZoom() {
+            {% if format_type == 'svg' %}
+            const container = document.getElementById('diagram-container');
+            container.style.transform = `scale(${zoomLevel})`;
+            container.style.transformOrigin = 'top left';
+            {% else %}
+            const container = document.getElementById('mermaid-diagram');
+            container.style.transform = `scale(${zoomLevel})`;
+            container.style.transformOrigin = 'top left';
+            {% endif %}
+        }
+        
+        function downloadSVG() {
+            const svgContent = document.getElementById('svg-object').contentDocument.documentElement.outerHTML;
+            const blob = new Blob([svgContent], { type: 'image/svg+xml' });
+            const url = URL.createObjectURL(blob);
+            
+            const link = document.createElement('a');
+            link.href = url;
+            link.download = 'kubeviz_diagram.svg';
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+        }
+        
+        function downloadMermaid() {
+            const mermaidContent = document.getElementById('mermaid-content').textContent;
+            const blob = new Blob([mermaidContent], { type: 'text/plain' });
+            const url = URL.createObjectURL(blob);
+            
+            const link = document.createElement('a');
+            link.href = url;
+            link.download = 'kubeviz_diagram.md';
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+        }
+    </script>
+</body>
+</html>
